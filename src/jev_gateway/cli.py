@@ -54,8 +54,13 @@ def main(argv=None) -> int:
         if name == "evaluate":
             command.add_argument("--diagnostics", metavar="PATH", help="Opt-in full trace file (may contain sensitive input)")
     args = parser.parse_args(argv)
+    startup_cwd = Path.cwd().resolve()
+    config_path = Path(args.config)
+    if not config_path.is_absolute():
+        config_path = startup_cwd / config_path
+    config_path = config_path.resolve()
     try:
-        settings = load_settings(args.config)
+        settings = load_settings(config_path)
         if args.command == "check":
             print(_json({"status": "ok", "config_id": settings.config_id,
                          "max_answers_per_question": settings.max_answers,
@@ -70,7 +75,12 @@ def main(argv=None) -> int:
         else:
             import uvicorn
             from .api import create_app
-            uvicorn.run(create_app(settings), host=settings.server.host, port=settings.server.port,
+            uvicorn.run(create_app(
+                settings,
+                config_path=config_path,
+                startup_cwd=startup_cwd,
+                control_stdin=True,
+            ), host=settings.server.host, port=settings.server.port,
                         access_log=False, log_level="warning")
         return 0
     except ValidationError as exc:

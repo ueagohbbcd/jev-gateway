@@ -25,6 +25,15 @@ class RequestError(Exception):
         self.message = message
 
 
+class GatewayCapacity:
+    """Process-wide admission and call limits shared by reloaded gateways."""
+
+    def __init__(self, settings: Settings) -> None:
+        self.call_slots = asyncio.Semaphore(settings.server.max_concurrent_calls)
+        self.admission_lock = threading.Lock()
+        self.active_requests = 0
+
+
 def _sum_usage(target: dict[str, Any], source: Mapping[str, Any]) -> None:
     """Recursively sum numeric usage counters while preserving provider detail."""
     for key, value in source.items():
@@ -41,13 +50,17 @@ def _sum_usage(target: dict[str, Any], source: Mapping[str, Any]) -> None:
 class Gateway:
     """Validate, plan, execute and aggregate one SystemOne request."""
 
-    def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        client: httpx.AsyncClient | None = None,
+        *,
+        capacity: GatewayCapacity | None = None,
+    ) -> None:
         self.settings = settings
         self._client = client
         self._owns_client = client is None
-        self._call_slots = asyncio.Semaphore(settings.server.max_concurrent_calls)
-        self._admission_lock = threading.Lock()
-        self._active_requests = 0
+        self._capacity = capacity or GatewayCapacity(settings)
 
     async def startup(self) -> None:
         """Validate runtime secrets and create the owned HTTP client."""
@@ -105,10 +118,10 @@ class Gateway:
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Execute a fully validated plan with bounded, fail-fast concurrency."""
         request_id = request_id or uuid.uuid4().hex
-        with self._admission_lock:
-            if self._active_requests >= self.settings.server.max_concurrent_requests:
+        with self._capacity.admission_lock:
+            if self._capacity.active_requests >= self.settings.server.max_concurrent_requests:
                 raise RequestError(529, "Too many concurrent requests")
-            self._active_requests += 1
+            self._capacity.active_requests += 1
 
         started = time.perf_counter()
         try:
@@ -167,8 +180,8 @@ class Gateway:
             }
             return response, diagnostics
         finally:
-            with self._admission_lock:
-                self._active_requests -= 1
+            with self._capacity.admission_lock:
+                self._capacity.active_requests -= 1
 
     async def _run_all(
         self, branches: list[dict[str, Any]], key: str
@@ -196,7 +209,7 @@ class Gateway:
         }
         assert self._client is not None
         try:
-            async with self._call_slots:
+            async with self._capacity.call_slots:
                 response = await self._client.post(
                     self.settings.upstream.base_url + "/chat/completions",
                     headers={

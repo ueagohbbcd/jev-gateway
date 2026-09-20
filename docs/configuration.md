@@ -1,6 +1,39 @@
 # 配置指南
 
-一个进程加载一份 TOML，启动后不变。`jev-gateway check --config PATH` 只做本地验证；它不检查账户余额、模型权限或线上 tokenizer。
+一个进程使用一份完整 TOML，通过 `--config` 选择启动文件，也可以在运行中用 stdin 命令替换。`jev-gateway check --config PATH` 只做本地验证；它不检查账户余额、模型权限或线上 tokenizer。
+
+## 选择与重载
+
+在运行 `jev-gateway serve --config config.toml` 的终端输入 `status`、`reload` 或 `reload PATH`。路径有空格时可以用一对引号包围；Windows 反斜杠不作为转义符。相对路径基于启动工作目录，不基于上一份配置所在目录。
+
+`reload` 先加载和校验整份文件，检查上游密钥环境变量是否存在，再切换当前配置快照。文件不存在、TOML 语法错误、提示词缺占位符或需要重启的设置发生变化，都返回失败回执，原配置和路径保持不变。检查不会发起上游请求，因此成功不代表模型权限、网络或余额已经验证。
+
+可热换 `[upstream]`、`[adapter]`、`[prompt]`、`[diagnostics]`；`[server]` 的所有字段固定于进程启动时，变更需重启。切换配置文件时要带上相同的非默认 server 设置，省略字段表示使用默认值，不表示继承旧值。
+
+每次 HTTP 请求在进入服务时捕获一个快照，包括最终响应头和失败日志的配置 ID。重载不影响已开始的请求，也不重置全进程并发额度。stdout 是逐行 JSON 命令回执，stderr 是服务日志；stdin EOF 不会关闭 HTTP 服务。
+
+其他程序可以控制它启动的服务子进程。例如，下面只查询状态和切配置，不运行推理；密钥环境变量由子进程继承：
+
+```python
+import json
+import subprocess
+
+process = subprocess.Popen(
+    ["jev-gateway", "serve", "--config", "config.toml"],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+    text=True, encoding="utf-8", bufsize=1,
+)
+try:
+    for command in ["status", "reload examples/calibrated.toml"]:
+        process.stdin.write(command + "\n")
+        process.stdin.flush()
+        print(json.loads(process.stdout.readline()))
+finally:
+    process.terminate()
+    process.wait()
+```
+
+这段示例结束时主动停止子进程。长期控制程序可以持续持有管道；stderr 默认继承到终端，不混入 JSON 回执。控制通道属于启动该进程的终端或父进程，不提供从另一个终端附着到任意已运行进程的命令。
 
 ## upstream：模型连接
 

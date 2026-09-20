@@ -10,6 +10,7 @@ import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -21,7 +22,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .config import Settings
 from .schema import SystemOneRequest, SystemOneResponse
-from .service import Gateway, RequestError
+from .runtime import GatewayRuntime, StdinControl
+from .service import RequestError
 
 _SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _RELEASE_DATE = "2026-09-20"
@@ -49,7 +51,7 @@ def _failure_event(request: Request, status: int) -> dict[str, Any]:
     return {
         "event": "evaluation.failed",
         "request_id": request.state.request_id,
-        "config_id": request.app.state.settings.config_id,
+        "config_id": request.state.settings.config_id,
         "duration_ms": round((time.perf_counter() - request.state.started) * 1000, 3),
         "status": status,
     }
@@ -59,27 +61,31 @@ class _RequestEnvelopeMiddleware:
     """Enforce the byte limit without obscuring later disconnect messages."""
 
     def __init__(
-        self, app: ASGIApp, *, settings: Settings, downstream_env: str | None
+        self, app: ASGIApp, *, runtime: GatewayRuntime
     ) -> None:
         self.app = app
-        self.settings = settings
-        self.downstream_env = downstream_env
+        self.runtime = runtime
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
+        snapshot = self.runtime.snapshot
+        settings = snapshot.settings
+        downstream_env = settings.server.api_key_env
         headers = Headers(scope=scope)
         request_id = _request_id(headers)
         scope.setdefault("state", {})["request_id"] = request_id
         scope["state"]["started"] = time.perf_counter()
+        scope["state"]["settings"] = settings
+        scope["state"]["gateway"] = snapshot.gateway
 
         async def send_with_ids(message: Message) -> None:
             if message["type"] == "http.response.start":
                 response_headers = MutableHeaders(scope=message)
                 response_headers["x-typesafe-request-id"] = request_id
-                response_headers["x-jev-config-id"] = self.settings.config_id
+                response_headers["x-jev-config-id"] = settings.config_id
             await send(message)
 
         chunks: list[bytes] = []
@@ -92,7 +98,7 @@ class _RequestEnvelopeMiddleware:
                 continue
             chunk = message.get("body", b"")
             total += len(chunk)
-            if total > self.settings.server.max_body_bytes:
+            if total > settings.server.max_body_bytes:
                 await _error(413, "Request body is too large")(scope, receive, send_with_ids)
                 return
             chunks.append(chunk)
@@ -100,8 +106,8 @@ class _RequestEnvelopeMiddleware:
                 break
         body = b"".join(chunks)
 
-        if scope["path"].startswith("/v1/") and self.downstream_env:
-            expected = os.environ.get(self.downstream_env)
+        if scope["path"].startswith("/v1/") and downstream_env:
+            expected = os.environ.get(downstream_env)
             supplied = headers.get("authorization", "")
             supplied_token = supplied[7:] if supplied.startswith("Bearer ") else ""
             valid = (
@@ -130,30 +136,47 @@ class _RequestEnvelopeMiddleware:
 
 
 def create_app(
-    settings: Settings, *, client: httpx.AsyncClient | None = None
+    settings: Settings,
+    *,
+    client: httpx.AsyncClient | None = None,
+    config_path: str | Path | None = None,
+    startup_cwd: str | Path | None = None,
+    control_stdin: bool = False,
 ) -> FastAPI:
     """Create an application whose lifespan owns only clients it constructs."""
     downstream_env = settings.server.api_key_env
     if downstream_env and not os.environ.get(downstream_env):
         raise ValueError("Configured downstream API key environment variable is missing")
 
-    gateway = Gateway(settings, client)
+    runtime = GatewayRuntime(
+        settings,
+        client=client,
+        config_path=config_path,
+        startup_cwd=startup_cwd,
+    )
+    stdin_control: StdinControl | None = None
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        await gateway.startup()
+        nonlocal stdin_control
+        await runtime.startup()
+        if control_stdin:
+            stdin_control = StdinControl(
+                runtime, input_stream=sys.stdin, output_stream=sys.stdout
+            )
+            stdin_control.start()
         try:
             yield
         finally:
-            await gateway.aclose()
+            if stdin_control is not None:
+                await stdin_control.stop()
+            await runtime.aclose()
 
     app = FastAPI(title="Jev Gateway", version="0.1.0", lifespan=lifespan)
-    app.state.settings = settings
-    app.state.gateway = gateway
+    runtime.bind_app(app)
     app.add_middleware(
         _RequestEnvelopeMiddleware,
-        settings=settings,
-        downstream_env=downstream_env,
+        runtime=runtime,
     )
 
     @app.exception_handler(RequestError)
@@ -191,15 +214,21 @@ def create_app(
         )
 
     @app.get("/")
-    async def root() -> dict[str, Any]:
-        return {"name": "jev-gateway", "docs": "/docs", "configID": settings.config_id}
+    async def root(request: Request) -> dict[str, Any]:
+        return {
+            "name": "jev-gateway",
+            "docs": "/docs",
+            "configID": request.state.settings.config_id,
+        }
 
     @app.get("/health/live")
     async def live() -> dict[str, str]:
         return {"status": "ok", "scope": "process"}
 
     @app.get("/health")
-    async def health() -> JSONResponse:
+    async def health(request: Request) -> JSONResponse:
+        settings = request.state.settings
+        downstream_env = settings.server.api_key_env
         upstream_ready = bool(os.environ.get(settings.upstream.api_key_env))
         downstream_ready = not downstream_env or bool(os.environ.get(downstream_env))
         ready = upstream_ready and downstream_ready
@@ -213,7 +242,8 @@ def create_app(
         )
 
     @app.get("/v1/models")
-    async def models() -> dict[str, Any]:
+    async def models(request: Request) -> dict[str, Any]:
+        settings = request.state.settings
         entries = [
             {
                 "name": "jev-latest",
@@ -236,7 +266,8 @@ def create_app(
         }
 
     @app.get("/v1/limits")
-    async def limits() -> dict[str, int]:
+    async def limits(request: Request) -> dict[str, int]:
+        settings = request.state.settings
         return {
             "max_answers_per_question": settings.max_answers,
             "max_questions": settings.server.max_questions,
@@ -249,12 +280,18 @@ def create_app(
     @app.post("/v1/systemone", response_model=SystemOneResponse)
     async def systemone(payload: SystemOneRequest, request: Request) -> dict[str, Any]:
         evaluation = asyncio.create_task(
-            request.app.state.gateway.evaluate(payload, request.state.request_id)
+            request.state.gateway.evaluate(payload, request.state.request_id)
         )
 
         async def wait_for_disconnect() -> None:
-            while not await request.is_disconnected():
-                await asyncio.sleep(0.05)
+            # The envelope middleware has already consumed and replayed the
+            # request body. Waiting on the raw ASGI receive is cancellable;
+            # Request.is_disconnected() uses a cancelled AnyIO scope for its
+            # probe and can leave this watcher stuck during response cleanup.
+            while True:
+                message = await request.receive()
+                if message["type"] == "http.disconnect":
+                    return
 
         disconnected = asyncio.create_task(wait_for_disconnect())
         try:
