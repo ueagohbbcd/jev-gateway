@@ -29,7 +29,7 @@
 
 无需 GPU、SGLang、完整词表或选定-token 查询接口。每个比较分支只请求一个输出 token，从返回分布读取目标标签。安装后可独立运行，无前端构建步骤。
 
-兼容的是公开的请求／响应结构，不是官方模型的判断质量、内部评分公式或全部容量限制。具体边界见 [接口与兼容性](docs/api.md)。
+提供 Jev 风格的 Noul、Choice、Score 请求与响应，判断由配置的上游模型完成。接口说明见 [API 兼容性](docs/api.md)。
 
 ## 启动
 
@@ -55,7 +55,7 @@ jev-simulator serve --config config.toml
 
 macOS / Linux 用 `export DEEPSEEK_API_KEY='你的密钥'`。示例默认连接 DeepSeek，并显式禁用思考；换供应商时修改 `upstream`，删除对方不支持的 `extra_body` 字段。模型必须支持首输出 token 的 logprobs，且单个输出 token 足以完成读数。
 
-服务默认监听 `127.0.0.1:8080`。打开 `/docs` 可以交互查看 HTTP 接口；它是自动生成的接口文档，不是另一套执行逻辑。
+服务默认监听 `127.0.0.1:8080`，打开 `/docs` 可交互查看和调用 HTTP 接口。
 
 ```sh
 curl http://127.0.0.1:8080/v1/systemone \
@@ -132,13 +132,13 @@ jev-simulator evaluate --config config.toml --request examples/request.json \
 
 预览、命令行运行和 HTTP 服务共用同一个计划、解析和聚合实现。完整诊断包含提示词、原始概率及映射，可能含输入隐私；只在明确指定路径时写入，本仓库默认忽略 `diagnostics/`。
 
-HTTP 进程把结构化事件写到 **stderr**，附请求 ID、配置 ID、概率质量、缺失标签数量和告警，不写输入正文、完整提示词或 API key。正常归一化本身不是告警。默认不保存用户请求、不自动重试，也不因告警额外调用模型。
+HTTP 进程把结构化事件写到 **stderr**，包含请求 ID、配置 ID、概率质量、缺失标签数量和告警。
 
 ## 概率语义
 
-原始目标质量高，说明模型愿意按要求输出标签，不代表答对概率高。缺失 top-k 标签按 0 近似，诊断始终保留缺失标记和归一化前质量上下界；如果一个目标标签都读不到，返回错误，不能制造均匀分布。
+默认在目标标签的概率质量低于 **99%** 时告警，可通过 `diagnostics.low_mass_threshold` 调整。这里的概率质量是归一化前各目标标签概率之和，用来检查提示词的输出约束效果。诊断同时提供质量上下界和缺失标签记录；未出现在 top-k 中的标签按 0 处理。
 
-温度在**每次请求的目标标签归一化时**应用。单次推理不改变选项排序；双循环先分别缩放，再按语义对齐、合并两种顺序，最后归一化期望胜分。因此双循环下的最终分布是锦标赛评分近似，不是一次模型调用的联合概率。
+温度在**每次请求的目标标签归一化时**应用。单次推理保持选项排序；双循环先分别缩放，再按语义对齐、合并两种顺序，最后归一化各候选的期望胜分。
 
 温度默认为 1，可用自己的标注数据校准。公式、告警与重放方法见 [概率与诊断](docs/probabilities.md)。
 
@@ -151,4 +151,4 @@ python -m pytest
 
 测试使用本地模拟上游，无需 API 密钥，不产生模型调用费用。
 
-项目参考 [Jev HTTP API](https://docs.typesafe.ai/api) 和 [openjev-sglang](https://github.com/ekzhang/openjev-sglang) 的接口思路，独立实现普通 Chat API 后端。后者能直接查询选定 token，本项目用提示词约束与可观测的 top-k 近似替代该能力，不声称两种读数完全等价。
+项目参考 [Jev HTTP API](https://docs.typesafe.ai/api) 和 [openjev-sglang](https://github.com/ekzhang/openjev-sglang) 的接口思路，使用普通 Chat API，通过提示词约束输出标签，并从 top-k logprobs 中读取概率。
