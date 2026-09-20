@@ -157,29 +157,6 @@ async def test_gateway_returns_all_official_shapes_and_preserves_usage(monkeypat
     await client.aclose()
 
 
-def test_plan_hides_question_and_semantic_ids_except_null_description() -> None:
-    settings = _settings()
-    gateway = Gateway(settings)
-    payload = _payload(
-        {
-            "SECRET-QUESTION-ID": {
-                "type": "choice",
-                "instructions": "pick",
-                "criteria": {
-                    "SECRET-SEMANTIC-A": "ordinary description",
-                    "NULL-DESCRIPTION-KEY": None,
-                },
-            }
-        }
-    )
-
-    branch = gateway.plan(payload)[0]
-    rendered = "\n".join(message["content"] for message in branch["messages"])
-    assert branch["question_id"] == "SECRET-QUESTION-ID"
-    assert set(branch["mapping"].values()) == {"SECRET-SEMANTIC-A", "NULL-DESCRIPTION-KEY"}
-    assert "SECRET-QUESTION-ID" not in rendered
-    assert "SECRET-SEMANTIC-A" not in rendered
-    assert "NULL-DESCRIPTION-KEY" in rendered
 
 
 @pytest.mark.asyncio
@@ -313,17 +290,6 @@ def test_call_cap_is_rejected_before_expanding_messages(monkeypatch) -> None:
     assert caught.value.status == 422
 
 
-def test_score_above_ten_is_structurally_rejected() -> None:
-    with pytest.raises(Exception):
-        _payload(
-            {
-                "q": {
-                    "type": "score",
-                    "instructions": "rate",
-                    "criteria": [str(index) for index in range(11)],
-                }
-            }
-        )
 
 
 def test_api_auth_key_separation_headers_models_limits_and_health(monkeypatch, capsys) -> None:

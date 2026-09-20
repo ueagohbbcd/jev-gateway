@@ -1,6 +1,5 @@
 # Jev 模拟器
 
-[![Offline tests](https://github.com/ueagohbbcd/jev-simulator/actions/workflows/test.yml/badge.svg)](https://github.com/ueagohbbcd/jev-simulator/actions/workflows/test.yml)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![Chat Completions + logprobs](https://img.shields.io/badge/backend-Chat_Completions_%2B_logprobs-475569)
 
