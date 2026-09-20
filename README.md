@@ -49,7 +49,7 @@ double_round_robin = false
 callsigns = []
 
 [prompt]
-system = "Evaluate the evidence. Reply with exactly one allowed token."
+system = "Answer the question using the evidence. Reply with one label, without whitespace."
 user = """
 Evidence:
 {{state}}
