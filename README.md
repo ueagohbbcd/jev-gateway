@@ -1,6 +1,6 @@
-# Jev Gateway
+# Jev 模拟器
 
-[![Offline tests](https://github.com/ueagohbbcd/jev-gateway/actions/workflows/test.yml/badge.svg)](https://github.com/ueagohbbcd/jev-gateway/actions/workflows/test.yml)
+[![Offline tests](https://github.com/ueagohbbcd/jev-simulator/actions/workflows/test.yml/badge.svg)](https://github.com/ueagohbbcd/jev-simulator/actions/workflows/test.yml)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![Chat Completions + logprobs](https://img.shields.io/badge/backend-Chat_Completions_%2B_logprobs-475569)
 
@@ -11,7 +11,7 @@
 [快速启动](#启动) · [配置指南](docs/configuration.md) · [API 兼容性](docs/api.md) · [概率与诊断](docs/probabilities.md) · [实测记录](docs/prompt-comparison.md)
 
 ```text
-状态 + 问题 → Jev Gateway → Chat Completions API
+状态 + 问题 → Jev 模拟器 → Chat Completions API
                   ↑                 ↓
                TOML 配置       首 token 概率
                   ↓                 ↓
@@ -36,8 +36,8 @@
 需要 Python 3.11 或更新版本。
 
 ```sh
-git clone https://github.com/ueagohbbcd/jev-gateway.git
-cd jev-gateway
+git clone https://github.com/ueagohbbcd/jev-simulator.git
+cd jev-simulator
 python -m venv .venv
 # macOS / Linux
 source .venv/bin/activate
@@ -49,8 +49,8 @@ python -m pip install -e .
 
 ```powershell
 $env:DEEPSEEK_API_KEY = "你的密钥"
-jev-gateway check --config config.toml
-jev-gateway serve --config config.toml
+jev-simulator check --config config.toml
+jev-simulator serve --config config.toml
 ```
 
 macOS / Linux 用 `export DEEPSEEK_API_KEY='你的密钥'`。示例默认连接 DeepSeek，并显式禁用思考；换供应商时修改 `upstream`，删除对方不支持的 `extra_body` 字段。模型必须支持首输出 token 的 logprobs，且单个输出 token 足以完成读数。
@@ -120,13 +120,13 @@ reload "配置文件/我的配置.toml"
 
 ```sh
 # 离线检查，不需要密钥，不发送请求
-jev-gateway check --config config.toml
+jev-simulator check --config config.toml
 
 # 展开全部实际提示词和映射，查看双循环会发多少请求
-jev-gateway preview --config config.toml --request examples/request.json
+jev-simulator preview --config config.toml --request examples/request.json
 
 # 真实调用；stdout 是 Jev 响应，可选保存完整诊断
-jev-gateway evaluate --config config.toml --request examples/request.json \
+jev-simulator evaluate --config config.toml --request examples/request.json \
   --diagnostics diagnostics/example.json
 ```
 

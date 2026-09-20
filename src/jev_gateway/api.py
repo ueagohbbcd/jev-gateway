@@ -172,7 +172,7 @@ def create_app(
                 await stdin_control.stop()
             await runtime.aclose()
 
-    app = FastAPI(title="Jev Gateway", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Jev 模拟器", version="0.1.0", lifespan=lifespan)
     runtime.bind_app(app)
     app.add_middleware(
         _RequestEnvelopeMiddleware,
@@ -216,7 +216,7 @@ def create_app(
     @app.get("/")
     async def root(request: Request) -> dict[str, Any]:
         return {
-            "name": "jev-gateway",
+            "name": "jev-simulator",
             "docs": "/docs",
             "configID": request.state.settings.config_id,
         }
