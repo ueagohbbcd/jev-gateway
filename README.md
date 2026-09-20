@@ -1,8 +1,33 @@
 # Jev Gateway
 
-把支持首 token `logprobs` 的 Chat Completions API 封装成 Jev 风格的类型化决策服务。业务侧传 `state` 和 `questions`，得到 Noul、Choice、Score；服务侧用一份 TOML 配置模型、提示词、双循环、呼号和温度缩放。
+[![Offline tests](https://github.com/ueagohbbcd/jev-gateway/actions/workflows/test.yml/badge.svg)](https://github.com/ueagohbbcd/jev-gateway/actions/workflows/test.yml)
+![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
+![Chat Completions + logprobs](https://img.shields.io/badge/backend-Chat_Completions_%2B_logprobs-475569)
 
-无需 GPU、SGLang、完整词表或选定-token 查询接口。服务不生成解释，只请求一个输出 token，从返回分布读取目标标签。这个仓库独立于早期实验室，没有前端构建步骤，也不依赖父目录。
+**用普通 Chat API，提供 Jev 兼容的决策端点。**
+
+把支持首 token `logprobs` 的 Chat Completions API 封装成类型化决策服务。业务侧传入状态和问题，获得判断、分类或评分；服务侧通过一份 TOML 配置提示词和概率处理。
+
+[快速启动](#启动) · [配置指南](docs/configuration.md) · [API 兼容性](docs/api.md) · [概率与诊断](docs/probabilities.md) · [实测记录](docs/prompt-comparison.md)
+
+```text
+状态 + 问题 → Jev Gateway → Chat Completions API
+                  ↑                 ↓
+               TOML 配置       首 token 概率
+                  ↓                 ↓
+           Noul / Choice / Score ← 解析与聚合
+```
+
+| 能力 | 用途 |
+| --- | --- |
+| Noul / Choice / Score | 是非判断、候选分类、分档评分 |
+| 文本提示词模板 | 直接编辑措辞、布局和证据位置 |
+| 双循环与自定义标签 | 比较候选的两种顺序，或替换默认字母标签 |
+| 温度缩放 | 调整输出概率的尖锐程度 |
+| 概率质量诊断 | 查看归一化前质量、缺失标签和质量上下界 |
+| stdin 热重载 | 运行中切换完整配置，在途请求保持原配置 |
+
+无需 GPU、SGLang、完整词表或选定-token 查询接口。每个比较分支只请求一个输出 token，从返回分布读取目标标签。安装后可独立运行，无前端构建步骤。
 
 兼容的是公开的请求／响应结构，不是官方模型的判断质量、内部评分公式或全部容量限制。具体边界见 [接口与兼容性](docs/api.md)。
 
@@ -11,11 +36,13 @@
 需要 Python 3.11 或更新版本。
 
 ```sh
+git clone https://github.com/ueagohbbcd/jev-gateway.git
+cd jev-gateway
 python -m venv .venv
 # macOS / Linux
 source .venv/bin/activate
 # Windows PowerShell 用 .venv\Scripts\Activate.ps1
-python -m pip install -e ".[test]"
+python -m pip install -e .
 ```
 
 把上游密钥放进环境变量。PowerShell：
@@ -118,11 +145,12 @@ HTTP 进程把结构化事件写到 **stderr**，附请求 ID、配置 ID、概�
 ## 开发与验证
 
 ```sh
+python -m pip install -e ".[test]"
 python -m pytest
 ```
 
 测试使用本地模拟上游，不花模型费用。代码按配置、公开类型、纯推理核心、异步转发服务、HTTP、CLI 分层；不提供通用插件系统或配置文件内代码执行。
 
-首次交付通过 60 项离线测试，并完成三个短问题的真实链路检查。具体范围、用量和限制见 [验证记录](docs/verification.md)。
+本地通过 64 项离线测试，包含实际 HTTP 进程与跨配置重载。精简提示词另做了 21 题、42 次 DeepSeek 调用的对照：两版均有 15 题与参考一致，精简版平均目标概率质量为 99.9573%。这是小样本兼容性与行为检查，不代表完整榜单准确率。详见 [验证记录](docs/verification.md) 和 [提示词对照实测](docs/prompt-comparison.md)。
 
 项目参考 [Jev HTTP API](https://docs.typesafe.ai/api) 和 [openjev-sglang](https://github.com/ekzhang/openjev-sglang) 的接口思路，独立实现普通 Chat API 后端。后者能直接查询选定 token，本项目用提示词约束与可观测的 top-k 近似替代该能力，不声称两种读数完全等价。

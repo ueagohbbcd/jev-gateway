@@ -9,6 +9,11 @@ dependencies = ["fastapi>=0.115,<1", "pydantic>=2.9,<3", "httpx>=0.28,<1", "uvic
 [project.optional-dependencies]
 test = ["pytest>=8,<10", "pytest-asyncio>=1,<2"]
 
+[project.urls]
+Repository = "https://github.com/ueagohbbcd/jev-gateway"
+Documentation = "https://github.com/ueagohbbcd/jev-gateway#readme"
+Issues = "https://github.com/ueagohbbcd/jev-gateway/issues"
+
 [project.scripts]
 jev-gateway = "jev_gateway.cli:main"
 
