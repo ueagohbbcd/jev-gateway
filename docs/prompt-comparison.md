@@ -18,7 +18,7 @@ Reply with exactly one allowed token, without whitespace or explanation.
 Answer the question using the evidence. Reply with one label, without whitespace.
 ```
 
-从本地公开 JEV viewer 数据按工作流、题型和历史答对／答错分组，每组取证据最短的一题，共 21 题。参考答案只用于离线比较，未发给模型。该选样刻意包含历史难题，也偏向短证据，不代表完整榜单准确率。每个配置每题仅运行一次，没有估计随机波动。
+从本地公开 JEV viewer 数据按工作流、题型和历史答对／答错分组，每组取证据最短的一题，共 21 题。参考答案用于离线比较。结果描述这组偏向短证据、包含历史难题的样本；每个配置每题运行一次，随机波动需通过重复实验评估。
 
 | 指标 | 旧版 | 精简版 |
 | --- | ---: | ---: |
@@ -33,10 +33,10 @@ Answer the question using the evidence. Reply with one label, without whitespace
 | 缓存未命中输入 token | 40,642 | 40,222 |
 | 输出 token | 21 | 21 |
 
-一致性按概率最大的标签判断；Score 也比较最大概率的档位，不把 API 返回的连续期望分数当作离散标签。这里的“错题置信度”指归一化后所选标签的概率，不是接口中的熵置信度字段。
+一致性按概率最大的标签判断，Score 同样比较最大概率的档位。表中的错题概率为归一化后所选标签的概率；API 的 `confidence` 字段另按熵公式计算。
 
 19 题标签未变；两题标签改变，但都仍与参考不一致：invoice_processing / ap_00246 / line_0_completion 从 less 变为 vendor_only（参考 none）；security_incidents / art_T1003.001-2__factor_recent__t1 / affected_scope 从 organization_wide 变为 single_entity（参考 workgroup）。没有观察到对错互换。
 
-这轮结果支持保留精简版：输出约束仍有效，未观察到参考一致性下降。它没有证明准确率提高，也没有消除高置信度错误。每次请求减少 20 个输入 token，总输入减少约 0.65%；长证据仍主导成本。
+这轮结果支持保留精简版：输出约束有效，两版参考一致率相同，高置信度错误仍有出现。每次请求减少 20 个输入 token，总输入减少约 0.65%；长证据仍主导成本。
 
 原始响应、概率分布、配置及选样清单保存在本地忽略目录 `diagnostics/prompt-simple-ab/`；`diagnostics/compare_simple_prompt.py` 为本次可续跑脚本，依赖父目录旧数据，不属于独立安装包。

@@ -1,12 +1,12 @@
 # 配置指南
 
-一个进程使用一份完整 TOML，通过 `--config` 选择启动文件，也可以在运行中用 stdin 命令替换。`jev-simulator check --config PATH` 只做本地验证；它不检查账户余额、模型权限或线上 tokenizer。
+一个进程使用一份完整 TOML，通过 `--config` 选择启动文件，也可以在运行中用 stdin 命令替换。`jev-simulator check --config PATH` 校验本地配置；`evaluate` 用于实际调用上游。
 
 ## 选择与重载
 
 在运行 `jev-simulator serve --config config.toml` 的终端输入 `status`、`reload` 或 `reload PATH`。路径有空格时可以用一对引号包围；Windows 反斜杠不作为转义符。相对路径基于启动工作目录，不基于上一份配置所在目录。
 
-`reload` 先加载和校验整份文件，检查上游密钥环境变量是否存在，再切换当前配置快照。文件不存在、TOML 语法错误、提示词缺占位符或需要重启的设置发生变化，都返回失败回执，原配置和路径保持不变。检查不会发起上游请求，因此成功不代表模型权限、网络或余额已经验证。
+`reload` 在本地加载和校验整份文件，检查上游密钥环境变量是否存在，再切换当前配置快照。文件读取失败、TOML 语法错误、提示词缺占位符或需要重启的设置发生变化，都返回失败回执，继续使用原配置和路径。
 
 可热换 `[upstream]`、`[adapter]`、`[prompt]`、`[diagnostics]`；`[server]` 的所有字段固定于进程启动时，变更需重启。切换配置文件时要带上相同的非默认 server 设置，省略字段表示使用默认值，不表示继承旧值。
 
@@ -33,7 +33,7 @@ finally:
     process.wait()
 ```
 
-这段示例结束时主动停止子进程。长期控制程序可以持续持有管道；stderr 默认继承到终端，不混入 JSON 回执。控制通道属于启动该进程的终端或父进程，不提供从另一个终端附着到任意已运行进程的命令。
+这段示例结束时主动停止子进程。长期控制程序可以持续持有管道；stderr 默认继承到终端，stdout 返回 JSON 回执。通过启动服务的终端或父进程发送控制命令。
 
 ## upstream：模型连接
 
@@ -46,13 +46,13 @@ finally:
 | `top_logprobs` | `20` | 请求返回的候选数，1–20；供应商需要支持所选值 |
 | `extra_body` | `{}` | 供应商扩展，例如 `thinking = { type = "disabled" }` |
 
-生成参数由适配器固定：一个输出 token、单条非流式 completion、开启 logprobs、采样温度 1。模型答案由概率分布决定，不使用实际采样出的文字作为硬答案。`extra_body` 不能覆盖这些协议字段，也不接受通过工具调用或 JSON 输出格式改变任务。换供应商时通常只需换连接配置并删去 `thinking`。
+生成参数由适配器固定：一个输出 token、单条非流式 completion、开启 logprobs、采样温度 1。模型答案由概率分布计算。`extra_body` 用于供应商扩展；覆盖固定协议字段或设置工具调用、JSON 输出格式时，配置校验会报错。换供应商时通常只需换连接配置并删去 `thinking`。
 
-只支持普通文本 Chat Completions。不是透明转发任意聊天请求的代理，也不会把本服务客户端的 Bearer token 转交上游。
+上游使用普通文本 Chat Completions，并以 `upstream.api_key_env` 指定的密钥认证。
 
 ## adapter：三个执行特性和校准
 
-`temperature` 为正有限数，默认 1。公式是 `softmax(label_logprobs / temperature)`，详见概率文档。它不更改上游采样参数。
+`temperature` 为正有限数，默认 1，用于概率后处理。公式是 `softmax(label_logprobs / temperature)`，详见概率文档。
 
 `double_round_robin` 默认 false。开启后 Choice/Score 的 n 个选项需要 `n(n-1)` 次调用；Noul 仍为 1 次。三选一是 6 次，十选一是 90 次。完整批次超过调用上限会在任何上游调用前拒绝。
 
@@ -63,9 +63,9 @@ finally:
 callsigns = ["alpha", "fox", "delta", "echo"]
 ```
 
-单次四选一会使用这四个词；双循环每场只使用前两个词，两次交换候选含义。列表长度同时限制 Choice/Score 的最大候选数。字符串大小写敏感，不能含空白、重复或为空。Noul 固定 Yes/No，与这份列表无关。
+单次四选一会使用这四个词；双循环每场只使用前两个词，两次交换候选含义。列表长度同时限制 Choice/Score 的最大候选数。每个标签须为非空、无空白的唯一字符串，按大小写精确匹配。Noul 固定使用 Yes/No。
 
-部署者须确认呼号在上游 tokenizer 的首输出位置是单 token。普通 Chat API 没有通用 tokenizer 查询方法，所以本地配置校验不能代替这项验证。示例中的候选曾在公开 DeepSeek tokenizer 上验证，但托管模型别名可能变化。`charlie` 等看起来简单的词也可能被切成多个 token。
+呼号应在目标模型的首输出位置对应单个 token。可用供应商 tokenizer 核对，并通过实际调用的诊断检查标签概率。示例候选基于公开 DeepSeek tokenizer 选取；切换模型时应重新核对分词。
 
 ## prompt：直接可读的文本
 
@@ -80,7 +80,7 @@ callsigns = ["alpha", "fox", "delta", "echo"]
 
 自定义问题 ID 不发给模型；Choice 的语义键也不发给模型，除非描述是 null，此时用键作为描述。Noul 的 true/false 标准渲染在 Yes/No 后。
 
-没有隐式复读、布局预设或优先级。想复读问题，可再放一次 `{{instructions}}`；想复读全部，直接再写一遍对应段落。字面 JSON 的单大括号不受影响。`{{...}}` 只用于已知占位符，未知或不闭合的写法会报错。证据里的同名字样保留为证据，不再次渲染。
+模板直接决定布局和重复次数。想复读问题，可再放一次 `{{instructions}}`；想复读全部，直接再写一遍对应段落。字面 JSON 的单大括号原样保留。`{{...}}` 用于已知占位符，未知或不闭合的写法会报错。替换执行一次，证据里的同名字样原样保留。
 
 ## server：运行边界
 
@@ -97,8 +97,8 @@ callsigns = ["alpha", "fox", "delta", "echo"]
 
 例如，配置 `api_key_env = "JEV_GATEWAY_API_KEY"`，再设置对应环境变量，就为 `/v1/*` 加上 Bearer 鉴权。这与上游 `DEEPSEEK_API_KEY` 分开。配置了密钥变量却没有设置值时，服务拒绝启动。
 
-并发限制是单进程的。超过批次并发限制返回 529；上游 429 保留为限流信号。一次批次失败或超时会取消尚未完成的任务，但无法保证供应商立即停止已经收到的调用或不计费。
+并发限制是单进程的。超过批次并发限制返回 529；上游 429 保留为限流信号。一次批次失败或超时会取消尚未完成的任务；上游已接收调用的执行与计费按供应商规则处理。
 
 ## diagnostics：告警门槛
 
-`low_mass_threshold` 默认 0.99。比较的是温度缩放与目标归一化**之前**的概率质量。它只控制诊断，不改变答案、不触发额外请求、不将低质量调用静默丢弃。详细判定见 [概率与诊断](probabilities.md)。
+`low_mass_threshold` 默认 0.99。比较的是温度缩放与目标归一化**之前**的概率质量，低于门槛时随结果输出告警。详细判定见 [概率与诊断](probabilities.md)。
