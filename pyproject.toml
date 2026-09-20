@@ -1,0 +1,22 @@
+[project]
+name = "jev-gateway"
+version = "0.1.0"
+description = "Jev-compatible decisions from Chat Completions logprobs"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["fastapi>=0.115,<1", "pydantic>=2.9,<3", "httpx>=0.28,<1", "uvicorn>=0.34,<1"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10", "pytest-asyncio>=1,<2"]
+
+[project.scripts]
+jev-gateway = "jev_gateway.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"

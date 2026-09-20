@@ -1,0 +1,12 @@
+[upstream]
+base_url = "https://api.deepseek.com"
+model = "deepseek-flash"
+api_key_env = "DEEPSEEK_API_KEY"
+extra_body = { thinking = { type = "disabled" } }
+
+[adapter]
+temperature = 1.0
+double_round_robin = false
+# Verified candidates in an archived public DeepSeek tokenizer, not a guarantee
+# about the tokenizer behind a hosted model alias. Exact spelling is significant.
+callsigns = ["alpha", "fox", "delta", "echo", "amber", "river", "frost", "iris", "india", "uniform"]

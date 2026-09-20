@@ -1,0 +1,15 @@
+[upstream]
+base_url = "https://api.deepseek.com"
+model = "deepseek-flash"
+api_key_env = "DEEPSEEK_API_KEY"
+extra_body = { thinking = { type = "disabled" } }
+
+[adapter]
+temperature = 1.0
+double_round_robin = true
+# Callsigns and the tournament are independent; [] retains letter labels.
+callsigns = []
+
+[server]
+# Reject an entire evaluation before inference if its expanded plan exceeds this.
+max_calls_per_request = 256
